@@ -1,0 +1,417 @@
+from random import random
+from treelib import Node, Tree
+import copy
+import sys
+
+board = 'b12345678'
+maximum_nodes = 0 # holds number of nodes that are allowed to be created during the programs run
+print_tree = False # ternary used to display the tree when running the code_correctness.txt file
+
+# object for each tree node that stores info about current state 
+class node_object:
+	
+	state = '' # current board
+	gn = 0
+	hn = 0
+	fn = gn + hn
+	moves = [] # list of moves to current state
+	parent = 0 # board of origination 
+
+	# constructor initializing variables
+	def __init__(self, state, gn, hn, moves, parent):
+		self.state = state
+		self.gn = gn
+		self.hn = hn
+		self.fn = self.gn + self.hn
+		self.moves = moves
+		self.parent = parent
+
+#sets board to a new state
+def setState(state):
+	global board
+	board = state.replace(' ', '') # removes spaces for code simplicity later
+
+# prints board as a 3x3 matrix
+def printState():
+	print(str(board[0]) + ' ' + str(board[1]) + ' ' + str(board[2]))
+	print(str(board[3]) + ' ' + str(board[4]) + ' ' + str(board[5]))
+	print(str(board[6]) + ' ' + str(board[7]) + ' ' + str(board[8]))
+
+# moves blank tile 'b' in direction 'up', 'down', 'left' or 'right'
+def move(direction):
+	global board
+	
+	temp_board = list(board) # turns board into list of individual characters
+	i = 0
+	
+	# loops until blank tile is found and swaps blank with tile of resulting movement
+	while i < len(board):
+		if temp_board[i] == 'b':
+			if direction == 'up' and i > 2:
+				temp_board[i] = temp_board[i-3]
+				temp_board[i-3] = 'b'
+			elif direction == 'down' and i < 6:
+				temp_board[i] = temp_board[i+3]
+				temp_board[i+3] = 'b'
+			elif direction == 'left' and i != 0 and i != 3 and i != 6:
+				temp_board[i] = temp_board[i-1]
+				temp_board[i-1] = 'b'
+			elif direction == 'right' and i != 2 and i != 5 and i != 8:
+				temp_board[i] = temp_board[i+1]
+				temp_board[i+1] = 'b'
+			i = len(temp_board) + 1
+		
+		i += 1
+	
+	board = ''.join(temp_board) # rejoins list into singular string
+
+# moves the blank tile n number of times 
+def randomizeState(n):
+	moves = 0 # stores number of moves that result in a new board configuration
+	
+	while moves < n:
+		original_board = board # used to confirm movement lead to new board configuration
+		rand = (int)(4 * random())
+		
+		if rand == 0:
+			move('up')
+		elif rand == 1:
+			move('down')
+		elif rand == 2:
+			move('left')
+		elif rand == 3:
+			move('right')
+
+		if board != original_board: # if the current board is different from original_board then increment moves
+			moves += 1
+
+# solve the board using A* search method with heuristics h1 or h2
+def solveAStar(heuristic):
+	global output
+	global board
+	global print_tree
+	
+	frontier = []
+	reached = []
+	tree = Tree()
+	original_board = board # need to store original state to create the pathway
+	
+	if board == 'b12345678': # board is already solved
+			return
+	
+	tree.create_node(board, board, data = node_object(board, 0, hn_value(board, heuristic), [], parent = 0)) # creates root node
+	node_counter = 1 # initialized to one because creating the root node counts as a node
+	frontier.append(tree.get_node(board).data)
+	reached.append(board)
+	
+	# runs while there are elements in the frontier list and terminates 
+	# when goal state has been found or node limit has been reached
+	while len(frontier) > 0:
+		
+		fn = frontier[0].fn # base case used for comparison to find lowest evaluation function value
+		best_node = frontier[0] # base case node value
+		frontier_counter = 0 # node position in frontier list
+		counter = 0 # loop iteration counter
+		
+		# runs through frontier list finding node with lowest evaluation function value
+		for node in frontier:
+			if node.fn < fn: # once lower/better node is found reassigns fn, best_node and frontier_counter
+				fn = node.fn
+				best_node = node
+				frontier_counter = counter
+			
+			counter += 1
+		
+		# expands best_node that is found and then loops to handle/sort the children
+		for child in expand(node = frontier.pop(frontier_counter), heuristic = heuristic):
+			
+			if child.state not in reached: # checks that child has not already been explored
+				
+				if child.state == 'b12345678': # if child is goal state then prints number of tiles moved, pathway and terminates
+					
+					tree.create_node(child.state, child.state, parent = best_node.state, data = child) # adds final goal state node to tree
+					
+					if print_tree: # used to print tree for failed cases when running code_correctness.txt
+						tree.show()
+						print_tree = False
+
+					print('Tiles moved: {}'.format(len(child.moves)))
+					print()
+					setState(original_board) # reassigns the starting position to create the pathway
+					printState()
+					for single_move in child.moves: # prints moves
+						move(single_move)
+						print('move ' + single_move)
+						print()
+						printState()
+					print()
+					return
+				
+				else:
+					tree.create_node(child.state, child.state, parent = best_node.state, data = child) # creates non-goal state node
+					frontier.append(child) # adds child to frontier list
+					reached.append(child.state) # adds child to reached list because they will be explored before the program checks if they've already been visited
+					node_counter += 1
+		
+		if node_counter >= maximum_nodes: # checks if node limit has been exceeded
+			print()
+			print('Error: The maximum number of nodes has been reached.')
+			return
+
+	print('Unable to solve.')
+	if print_tree: # used to print tree for failed cases when running code_correctness.txt
+		tree.show()
+		print_tree = False
+	
+	return
+
+# solves the board using local beam serach method with a value for k
+def solveBeam(k):
+	global output
+	global board
+	global print_tree
+	
+	frontier = []
+	reached = []
+	tree = Tree()
+	original_board = board # need to store original state to create the pathway
+
+	if board == 'b12345678':
+			return
+	
+	tree.create_node(board, board, data = node_object(board, 0, hn_value(board, 'h2'), [], 0)) # creates root node
+	node_counter = 1 # initialized to one because creating the root node counts as a node
+	frontier.append(tree.get_node(board).data)
+	reached.append(board)
+	
+	# runs while there are elements in the frontier list and terminates 
+	# when goal state has been found or node limit has been reached
+	while len(frontier) > 0:
+		
+		pass_nodes = [] # list of nodes to pass to the expand function
+		
+		# pops k elements from frontier list and appends them to pass_node list
+		for i in range(len(frontier)):
+			if len(pass_nodes) < k:
+				pass_nodes.append(frontier.pop())
+		
+		# expands the nodes in pass_node list and then loops to handle/sort the children
+		for child in expand(k = k, passed_nodes = pass_nodes):
+			
+			if child.state not in reached: # checks that child has not already been explored
+				
+				if child.state == 'b12345678': # if child is goal state then prints number of tiles moved, pathway and terminates
+					
+					tree.create_node(child.state, child.state, parent = child.parent, data = child) # adds final goal state node to tree
+					
+					if print_tree: # used to print tree for failed cases when running code_correctness.txt
+						tree.show()
+						print_tree = False
+					
+					print('Tiles moved: {}'.format(len(child.moves)))
+					print()
+					setState(original_board) # reassigns the starting position to create the pathway
+					printState()
+					for single_move in child.moves: # prints moves
+						move(single_move)
+						print('move ' + single_move)
+						print()
+						printState()
+					print()
+					return
+				else:
+					tree.create_node(child.state, child.state, parent = child.parent, data = child) # creates non-goal state node
+					frontier.append(child) # adds child to frontier list
+					reached.append(child.state) # adds child to reached list because they will be explored before the program checks if they've already been visited
+					node_counter += 1
+		
+		if node_counter >= maximum_nodes: # checks if node limit has been exceeded
+			print()
+			print('Error: The maximum number of nodes has been reached.')
+			return
+	
+	print('Unable to solve.') # used to print tree for failed cases when running code_correctness.txt
+	if print_tree:
+		tree.show()
+		print_tree = False
+	
+	return
+
+# generates child nodes for A* search and local beam search
+def expand(node: node_object = None, heuristic: str = 'h2', k: int = 0, passed_nodes: list = []):
+	
+	nodes = [] # stores nodes to be passed back to function that called expand
+
+	if k == 0 and len(passed_nodes) == 0: # checks that nothing was passed for k and passed_nodes so is therefore A* search calling expand
+		
+		setState(node.state) # sets the board state to the passed node state 
+		moves = copy.deepcopy(node.moves) # copies passed node moves to modify and use for child nodes moves
+		moves.append('up') # appends move for child nodes movement list
+		move('up') # modifies the board
+		# creates and appends node to nodes that store the new board value and move list
+		nodes.append(node_object(board, node.gn + 1, hn_value(board, heuristic), moves, parent = node.state))
+		
+		setState(node.state)
+		moves = copy.deepcopy(node.moves)
+		moves.append('down')
+		move('down')
+		nodes.append(node_object(board, node.gn + 1, hn_value(board, heuristic), moves, parent = node.state))
+		
+		setState(node.state)
+		moves = copy.deepcopy(node.moves)
+		moves.append('left')
+		move('left')
+		nodes.append(node_object(board, node.gn + 1, hn_value(board, heuristic), moves, parent = node.state))
+		
+		setState(node.state)
+		moves = copy.deepcopy(node.moves)
+		moves.append('right')
+		move('right')
+		nodes.append(node_object(board, node.gn + 1, hn_value(board, heuristic), moves, parent = node.state))
+
+	elif k > 0:
+		
+		hn = [] # list of h(n) function valuse
+		possible_nodes = [] # list of nodes that can be selected from
+
+		for node in passed_nodes:
+
+			setState(node.state)
+			moves = copy.deepcopy(node.moves)
+			moves.append('up')
+			move('up')
+			if board != node.state: # sorts out which movements change the board and which do not change the board
+				hn.append(hn_value(board, heuristic))
+				possible_nodes.append(node_object(board, node.gn + 1, hn[-1], moves, parent = node.state))
+			else:
+				hn.append(-1) # movements that do not change the board get h(n) = -1 and an empty node_object
+				possible_nodes.append(node_object(0,0,0,[],0))
+			
+			setState(node.state)
+			moves = copy.deepcopy(node.moves)
+			moves.append('down')
+			move('down')
+			if board != node.state:
+				hn.append(hn_value(board, heuristic))
+				possible_nodes.append(node_object(board, node.gn + 1, hn[-1], moves, parent = node.state))
+			else:
+				hn.append(-1)
+				possible_nodes.append(node_object(0,0,0,[],0))
+			
+			setState(node.state)
+			moves = copy.deepcopy(node.moves)
+			moves.append('left')
+			move('left')
+			if board != node.state:
+				hn.append(hn_value(board, heuristic))
+				possible_nodes.append(node_object(board, node.gn + 1, hn[-1], moves, parent = node.state))
+			else:
+				hn.append(-1)
+				possible_nodes.append(node_object(0,0,0,[],0))
+			
+			setState(node.state)
+			moves = copy.deepcopy(node.moves)
+			moves.append('right')
+			move('right')
+			if board != node.state:
+				hn.append(hn_value(board, heuristic))
+				possible_nodes.append(node_object(board, node.gn + 1, hn[-1], moves, parent = node.state))
+			else:
+				hn.append(-1)
+				possible_nodes.append(node_object(0,0,0,[],0))
+		
+		# finds min h(n) that is not -1
+		minimum = str(min([value for value in hn if value!=-1], default = -1))
+		i = 0
+		while i < len(hn): # finds position of minimum
+
+			if hn[i] == int(minimum) and possible_nodes[i].state != 0: # checks that minimum is not an empty node
+				hn[i] = -1 # changes current minimum value to -1 so it won't be reselected
+				nodes.append(possible_nodes[i]) # appends node to nodes
+				minimum = str(min([value for value in hn if value!=-1], default = -2)) # finds next minimum value
+				i = -1 # resets the loop
+				if len(nodes) == k or int(minimum) == -2: # termintes the loop when we have enough nodes or all hn values are -1
+					i = len(hn)
+			i += 1
+	
+	return nodes
+
+# calculates h(n) given a board and a heuristic 
+def hn_value(board, heuristic):
+	
+	if heuristic == 'h1': # calcultes number of misplaced tiles
+		list_board = list(board)
+		hn = 0
+		counter = 0
+		for i in board:
+			if i.isdigit() and int(i) != counter:
+				hn += 1
+			counter += 1
+		return hn
+	
+	elif heuristic == 'h2': # calculates Manhattan distance
+		h = 0
+		for i in range(len(board)):
+			y = i%3
+			x = int(i/3)
+			if board[i] == 'b':
+				h += x + y
+			else:
+				h += abs(x-int(int(board[i])/3))+abs(y-int(int(board[i])%3))
+		return h
+
+# sets the maximum number of nodes allowed to be explored
+def maxNodes(n):
+	global maximum_nodes
+	maximum_nodes = n
+
+# run step
+if __name__ == '__main__' and True:
+	# open and read file
+	file = sys.argv[1]
+	f = None
+	ternary = True
+	try:
+		f = open(file, "r")
+	except:
+		ternary = False
+		print('Error: File not found.')
+	if ternary:
+		commands = []
+		# separates out commands from the line
+		for line in f:
+			item = ''
+			one_space = True
+			for i in range(len(line)):
+				if line[i] != ' ':
+					item += line[i]
+				if line[i] == ' ' and one_space:
+					commands.append(item.strip().lower())
+					item = ''
+					one_space = False
+				if i+1 == len(line):
+					commands.append(item.strip().lower())
+		i = 0
+		# executes the commands from the commands list
+		for command in commands:
+			if command == 'setstate':
+				setState(commands[i+1])
+			elif command == 'printstate':
+				printState()
+				print()
+			elif command == 'move':
+				move(commands[i+1])
+			elif command == 'randomizestate':
+				randomizeState(int(commands[i+1]))
+			elif command == 'solveastar':
+				solveAStar(commands[i+1])
+			elif command == 'solvebeam':
+				solveBeam(int(commands[i+1]))
+			elif command == 'maxnodes':
+				maxNodes(int(commands[i+1]))
+			elif command == 'wait':
+				input('Press any key to continue.')
+				print()
+			elif command == 'tree':
+				print_tree = True
+			i += 1
